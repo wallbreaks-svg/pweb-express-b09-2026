@@ -14,3 +14,4 @@ router.use("/players", playerRoutes);
 router.use("/statistics", statisticRoutes);
 
 export default router;
+import statisticRouter from "./statistic.routes";
