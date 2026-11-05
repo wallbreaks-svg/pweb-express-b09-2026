@@ -1,69 +1,260 @@
+
 import { Router } from "express";
+import type { Request, Response, NextFunction } from "express";
+import prisma from "../config/prisma";
+import { HttpError } from "../utils/http-error";
+import { sendSuccess } from "../utils/response";
 
 const router = Router();
 
-// =========================================================================
-// BAGIAN 2: DIKERJAKAN OLEH ANGGOTA 2 (Teman 1)
-// Fitur 4: Player Management (CRUD)
-// Fitur 5: Top Up & Match
-//
-// Endpoint yang dikerjakan:
-// 1. POST   /api/players                -> Buat player baru (default 10000 BP, 0 Diamond)
-// 2. GET    /api/players/:player_id     -> Detail player beserta daftar hero yang dimiliki
-// 3. PATCH  /api/players/:player_id     -> Update nickname player
-// 4. DELETE /api/players/:player_id     -> Hapus player (cascade ke PlayerHero)
-// 5. POST   /api/players/:player_id/topup   -> Top up diamond player (amount bulat > 0)
-// 6. POST   /api/players/:player_id/matches -> Main match (result WIN: +300 BP, LOSE: +100 BP)
-// =========================================================================
+// ==========================================
+// FITUR 4: CRUD PLAYER
+// ==========================================
 
-// --- Fitur 4: Player CRUD ---
-router.post("/", (req, res, next) => {
-  // TODO (Anggota 2): Implementasikan create player
-  res.status(501).json({
-    status: false,
-    message: "Endpoint create player belum diimplementasikan (Tugas Anggota 2)",
-  });
-});
+// POST /api/players
+// Membuat player baru
+router.post(
+  "/",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { nickname } = req.body ?? {};
 
-router.get("/:player_id", (req, res, next) => {
-  // TODO (Anggota 2): Implementasikan get player detail
-  res.status(501).json({
-    status: false,
-    message: "Endpoint get player detail belum diimplementasikan (Tugas Anggota 2)",
-  });
-});
+      if (typeof nickname !== "string" || !nickname.trim()) {
+        throw new HttpError(400, "Nickname wajib diisi");
+      }
 
-router.patch("/:player_id", (req, res, next) => {
-  // TODO (Anggota 2): Implementasikan update nickname player
-  res.status(501).json({
-    status: false,
-    message: "Endpoint update player belum diimplementasikan (Tugas Anggota 2)",
-  });
-});
+      const cleanNickname = nickname.trim();
 
-router.delete("/:player_id", (req, res, next) => {
-  // TODO (Anggota 2): Implementasikan delete player
-  res.status(501).json({
-    status: false,
-    message: "Endpoint delete player belum diimplementasikan (Tugas Anggota 2)",
-  });
-});
+      const existingPlayer = await prisma.player.findUnique({
+        where: { nickname: cleanNickname },
+      });
 
-// --- Fitur 5: Top Up & Match ---
-router.post("/:player_id/topup", (req, res, next) => {
-  // TODO (Anggota 2): Implementasikan top up diamond
-  res.status(501).json({
-    status: false,
-    message: "Endpoint top up diamond belum diimplementasikan (Tugas Anggota 2)",
-  });
-});
+      if (existingPlayer) {
+        throw new HttpError(409, "Nickname sudah digunakan");
+      }
 
-router.post("/:player_id/matches", (req, res, next) => {
-  // TODO (Anggota 2): Implementasikan match result (WIN / LOSE)
-  res.status(501).json({
-    status: false,
-    message: "Endpoint match result belum diimplementasikan (Tugas Anggota 2)",
-  });
-});
+      const player = await prisma.player.create({
+        data: {
+          nickname: cleanNickname,
+        },
+      });
+
+      sendSuccess(res, 201, "Player berhasil dibuat", player);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// GET /api/players/:player_id
+// Mengambil detail player beserta hero yang dimiliki
+router.get(
+  "/:player_id",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const playerId = Number(req.params.player_id);
+
+      if (!Number.isInteger(playerId) || playerId <= 0) {
+        throw new HttpError(400, "ID player tidak valid");
+      }
+
+      const player = await prisma.player.findUnique({
+        where: { id: playerId },
+        include: {
+          playerHeroes: {
+            include: {
+              hero: true,
+            },
+          },
+        },
+      });
+
+      if (!player) {
+        throw new HttpError(404, "Player tidak ditemukan");
+      }
+
+      sendSuccess(res, 200, "Berhasil mengambil detail player", player);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// PATCH /api/players/:player_id
+// Mengubah nickname player
+router.patch(
+  "/:player_id",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const playerId = Number(req.params.player_id);
+      const { nickname } = req.body ?? {};
+
+      if (!Number.isInteger(playerId) || playerId <= 0) {
+        throw new HttpError(400, "ID player tidak valid");
+      }
+
+      if (typeof nickname !== "string" || !nickname.trim()) {
+        throw new HttpError(400, "Nickname wajib diisi");
+      }
+
+      const cleanNickname = nickname.trim();
+
+      const player = await prisma.player.findUnique({
+        where: { id: playerId },
+      });
+
+      if (!player) {
+        throw new HttpError(404, "Player tidak ditemukan");
+      }
+
+      const existingPlayer = await prisma.player.findUnique({
+        where: { nickname: cleanNickname },
+      });
+
+      if (existingPlayer && existingPlayer.id !== playerId) {
+        throw new HttpError(409, "Nickname sudah digunakan");
+      }
+
+      const updatedPlayer = await prisma.player.update({
+        where: { id: playerId },
+        data: { nickname: cleanNickname },
+      });
+
+      sendSuccess(res, 200, "Nickname player berhasil diperbarui", updatedPlayer);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// DELETE /api/players/:player_id
+// Menghapus player beserta hero yang dimiliki
+router.delete(
+  "/:player_id",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const playerId = Number(req.params.player_id);
+
+      if (!Number.isInteger(playerId) || playerId <= 0) {
+        throw new HttpError(400, "ID player tidak valid");
+      }
+
+      const player = await prisma.player.findUnique({
+        where: { id: playerId },
+      });
+
+      if (!player) {
+        throw new HttpError(404, "Player tidak ditemukan");
+      }
+
+      await prisma.player.delete({
+        where: { id: playerId },
+      });
+
+      sendSuccess(res, 200, "Player berhasil dihapus", player);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// ==========================================
+// FITUR 5: TOP UP DAN MATCH
+// ==========================================
+
+// POST /api/players/:player_id/topup
+// Menambahkan Diamond ke balance player
+router.post(
+  "/:player_id/topup",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const playerId = Number(req.params.player_id);
+      const { amount } = req.body ?? {};
+
+      if (!Number.isInteger(amount) || amount <= 0) {
+        throw new HttpError(400, "Amount harus berupa bilangan bulat lebih dari 0");
+      }
+
+      if (!Number.isInteger(playerId) || playerId <= 0) {
+        throw new HttpError(400, "ID player tidak valid");
+      }
+
+      const player = await prisma.player.findUnique({
+        where: { id: playerId },
+      });
+
+      if (!player) {
+        throw new HttpError(404, "Player tidak ditemukan");
+      }
+
+      const updatedPlayer = await prisma.player.update({
+        where: { id: playerId },
+        data: {
+          diamond: {
+            increment: amount,
+          },
+        },
+      });
+
+      sendSuccess(res, 200, "Top up Diamond berhasil", {
+        playerId: updatedPlayer.id,
+        nickname: updatedPlayer.nickname,
+        amountAdded: amount,
+        diamond: updatedPlayer.diamond,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// POST /api/players/:player_id/matches
+// Menambahkan BP berdasarkan hasil pertandingan
+router.post(
+  "/:player_id/matches",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const playerId = Number(req.params.player_id);
+      const { result } = req.body ?? {};
+
+      if (result !== "WIN" && result !== "LOSE") {
+        throw new HttpError(400, 'Result harus bernilai "WIN" atau "LOSE"');
+      }
+
+      if (!Number.isInteger(playerId) || playerId <= 0) {
+        throw new HttpError(400, "ID player tidak valid");
+      }
+
+      const player = await prisma.player.findUnique({
+        where: { id: playerId },
+      });
+
+      if (!player) {
+        throw new HttpError(404, "Player tidak ditemukan");
+      }
+
+      const earnedBP = result === "WIN" ? 300 : 100;
+
+      const updatedPlayer = await prisma.player.update({
+        where: { id: playerId },
+        data: {
+          bp: {
+            increment: earnedBP,
+          },
+        },
+      });
+
+      sendSuccess(res, 200, "Hasil pertandingan berhasil dicatat", {
+        playerId: updatedPlayer.id,
+        nickname: updatedPlayer.nickname,
+        result,
+        earnedBP,
+        bp: updatedPlayer.bp,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 export default router;
